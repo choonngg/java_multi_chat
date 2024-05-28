@@ -1,18 +1,21 @@
 package chat.gui;
 
-import chat.data.ClientService;
 import javafx.application.Application;
+import javafx.event.ActionEvent;
+import javafx.event.EventHandler;
 import javafx.scene.Scene;
-import javafx.scene.control.Button;
-import javafx.scene.control.TextArea;
+import javafx.scene.control.*;
 import javafx.scene.layout.Pane;
 import javafx.stage.Stage;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
 
 public class ChatClient extends Application {
 
@@ -20,11 +23,16 @@ public class ChatClient extends Application {
     private TextArea chatLogsArea;
     private Button sendButton;
 
+    private static String dbURL = "jdbc:mysql://localhost:3306/chat";
+    private static String dbName = "root";
+    private static String dbPassword = "0129";
+
+    private String userId = "";
+    private String userName = "";
+
     private Socket clientSocket;
     private PrintWriter out;
     private BufferedReader in;
-
-//    private ClientService clientService;
 
     public static void main(String[] args) {
         launch(args);
@@ -90,30 +98,36 @@ public class ChatClient extends Application {
             in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             System.out.println("서버 연결 성공");
 
-            // 스레드를 통해 송수신을 독립적으로 처리
-            Thread userThread = new Thread(new UserHandler());
+            // sql관련 (close까지)
+            // 테이블에 내용이 있다고 간주(테이블에는 id, password, name이 varchar로 있음)
+            // id와 name을 가져와서 client에 String 변수 2개(userId, userName)를 만들어 저장
+            // 혼자 테스트할때는 user테이블에 id 1,2,3을 만들어서 했음
+            // 추후 로그인과 연결할 때는 sql문을 변경해서 가져오면 될듯?
+            Connection connection = DriverManager.getConnection(dbURL, dbName, dbPassword);
+            Statement statement = connection.createStatement();
+
+            String sql = "select id, name from user where id = 3";
+            ResultSet resultSet = statement.executeQuery(sql);
+
+            while (resultSet.next()) {
+                userId = resultSet.getString("id");
+                userName = resultSet.getString("name");
+            }
+
+            resultSet.close();
+            statement.close();
+            connection.close();
+
+            // userId와 userName을 서버에 전달
+            out.println(userId);
+            out.println(userName);
+
             Thread serverThread = new Thread(new ServerHandler());
-            userThread.start();
             serverThread.start();
 
         } catch (Exception e) {
             System.out.println("서버 연결 실패");
             e.printStackTrace();
-        }
-    }
-
-    // 사용자 입력에 대한 처리 (서버로 송신)
-    private class UserHandler implements Runnable {
-        @Override
-        public void run() {
-            try {
-                while (true) {
-                    // 메인 스레드에서 전송 버튼 클릭 이벤트로 송신 처리
-                    Thread.sleep(100);  // 너무 많은 루프를 돌지 않도록 잠시 대기
-                }
-            } catch (Exception e) {
-                System.out.println("사용자 입력 오류 발생");
-            }
         }
     }
 
@@ -125,7 +139,13 @@ public class ChatClient extends Application {
                 String message;
                 while ((message = in.readLine()) != null) {
                     chatLogsArea.appendText(message + "\n");
+
+                    // 강퇴알림을 받았을경우 창띄우고 클라이언트 창 종료
+                    if (message.equals(userName + "(" + userId + ")님이 강퇴되었습니다.")) {
+                        System.exit(0);
+                    }
                 }
+
             } catch (Exception e) {
                 System.out.println("서버 응답 오류 발생");
             }
